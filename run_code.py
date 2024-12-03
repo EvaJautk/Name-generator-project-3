@@ -3,6 +3,8 @@
 #!pip install pyngrok
 #run authentication token 
 #!ngrok authtoken 2pRoZs6LBhu0UU89o8ZQsL4vi4y_6TeUEzE6RwPnX2gRWbGTc
+pip install pyngrok
+
 import subprocess
 
 # Run ngrok authtoken command using subprocess
