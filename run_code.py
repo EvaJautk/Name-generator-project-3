@@ -2,7 +2,11 @@
 !pip install streamlit
 !pip install pyngrok
 #run authentication token 
-!ngrok authtoken 2pRoZs6LBhu0UU89o8ZQsL4vi4y_6TeUEzE6RwPnX2gRWbGTc
+#!ngrok authtoken 2pRoZs6LBhu0UU89o8ZQsL4vi4y_6TeUEzE6RwPnX2gRWbGTc
+import subprocess
+
+# Run ngrok authtoken command using subprocess
+subprocess.run(['ngrok', 'authtoken', '2pRoZs6LBhu0UU89o8ZQsL4vi4y_6TeUEzE6RwPnX2gRWbGTc'])
 
 # Import necessary libraries
 from pyngrok import ngrok
