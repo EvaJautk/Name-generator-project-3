@@ -4,6 +4,7 @@ beautifulsoup4
 pyngrok
 nygrok
 streamlit
+torch==2.5.1
 altair==5.5.0
 attrs==24.2.0
 beautifulsoup4==4.12.3
