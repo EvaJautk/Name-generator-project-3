@@ -26,11 +26,6 @@
 #subprocess.run(['streamlit', 'run', 'streamlit_app.py'])
 import subprocess
 import sys
-
-# Install any necessary dependencies if they are not already in the environment
-# (NOTE: Do NOT try this in Streamlit Cloud, use requirements.txt instead)
-# subprocess.check_call([sys.executable, "-m", "pip", "install", "pyngrok"])
-
 # You can check if ngrok is installed (optional, if you need ngrok setup)
 try:
     subprocess.check_call([sys.executable, "-m", "pyngrok"])
