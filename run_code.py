@@ -27,10 +27,10 @@
 import subprocess
 import sys
 # You can check if ngrok is installed (optional, if you need ngrok setup)
-try:
-    subprocess.check_call([sys.executable, "-m", "pyngrok"])
-except subprocess.CalledProcessError:
-    print("Error with ngrok setup!")
+#try:
+ #   subprocess.check_call([sys.executable, "-m", "pyngrok"])
+#except subprocess.CalledProcessError:
+ #   print("Error with ngrok setup!")
 
 # Run the Streamlit app
 subprocess.run(["streamlit", "run", "streamlit_app.py"])  # Replace with your actual app filename
