@@ -20,4 +20,5 @@ print(f"Streamlit app is live at: {public_url}")
 #!pip install streamlit
 
 # Run the Streamlit app in the background using shell command
-!streamlit run streamlit_app.py &  # Replace with your actual file path
+#!streamlit run streamlit_app.py &
+subprocess.run(['streamlit', 'run', 'streamlit_app.py'])
