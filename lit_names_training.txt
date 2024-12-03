@@ -1,0 +1,382 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import pandas as pd
+from torch.utils.data import DataLoader, Dataset
+from torch.nn.utils.rnn import pad_sequence
+
+import requests
+from bs4 import BeautifulSoup
+
+names = []
+
+for key in ['a', 'b', 'c', 'c-2', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
+            'm', 'n', 'o', 'p', 'r', 's', 's-2', 't', 'u', 'v', 'z', 'z-2']:
+    url = f'https://vardai.vlkk.lt/sarasas/{key}/'
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    male_links = soup.find_all('a', class_='names_list__links names_list__links--man')
+    for link in male_links:
+        names.append({'name': link.text, 'gender': 'male'})
+
+    female_links = soup.find_all('a', class_='names_list__links names_list__links--woman')
+    for link in female_links:
+        names.append({'name': link.text, 'gender': 'female'})
+
+df = pd.DataFrame(names)
+df.to_csv('lithuanian_names.csv', index=False)
+
+class NameDataset(Dataset):
+    def __init__(self, csv_file):
+        # Load CSV file 
+        data = pd.read_csv(csv_file)
+        self.names = data['name'].values
+        self.genders = data['gender'].values
+
+        # Create character set and mappings
+        self.chars = sorted(list(set(''.join(self.names) + ' ')))
+        self.char_to_int = {c: i for i, c in enumerate(self.chars)}
+        self.int_to_char = {i: c for c, i in self.char_to_int.items()}
+        self.vocab_size = len(self.chars)
+
+        # Map genders to integers (0 for male, 1 for female)
+        self.gender_to_int = {'male': 0, 'female': 1}
+        self.int_to_gender = {0: 'male', 1: 'female'}
+
+    def __len__(self):
+        return len(self.names)
+
+    def __getitem__(self, idx):
+
+        name = self.names[idx] + ' '  # Add padding character (space) at the end
+        gender = self.genders[idx]
+
+        encoded_name = [self.char_to_int[char] for char in name]
+        encoded_gender = self.gender_to_int[gender]
+
+        return torch.tensor(encoded_name), torch.tensor(encoded_gender)
+
+dataset = NameDataset('/content/lithuanian_names.csv')
+
+def pad_collate(batch):
+    names, genders = zip(*batch)
+
+    padded_seqs = pad_sequence(names, batch_first=True, padding_value=0)
+
+    input_seq = padded_seqs[:, :-1]
+    target_seq = padded_seqs[:, 1:]
+
+    genders = torch.stack(genders)
+
+    return input_seq, target_seq, genders
+
+dataloader = DataLoader(dataset, batch_size=32, shuffle=True, collate_fn=pad_collate)
+
+class MinimalTransformer(nn.Module):
+    def __init__(self, vocab_size, embed_size, num_heads, forward_expansion, gender_size):
+        super(MinimalTransformer, self).__init__()
+        self.embed = nn.Embedding(vocab_size, embed_size)
+        self.gender_embed = nn.Embedding(gender_size, embed_size)  # Embedding for gender
+        self.positional_encoding = nn.Parameter(torch.randn(1, 100, embed_size))
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=embed_size, nhead=num_heads)
+        self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=1)
+        self.output_layer = nn.Linear(embed_size, vocab_size)
+
+    def forward(self, x, gender):
+        # Embed gender and add it to the input embedding
+        gender_emb = self.gender_embed(gender).unsqueeze(1).expand(-1, x.size(1), -1)  # Repeat gender embedding for each timestep
+        positions = torch.arange(0, x.size(1)).unsqueeze(0)
+        x = self.embed(x) + self.positional_encoding[:, :x.size(1), :] + gender_emb
+        x = self.transformer_encoder(x)
+        x = self.output_layer(x)
+        return x
+
+def train_model(model, dataloader, epochs=10):
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters())
+
+    for epoch in range(epochs):
+        model.train() 
+        total_loss = 0.0
+        batch_count = 0
+
+        for _, (input_seq, target_seq, gender) in enumerate(dataloader):
+            optimizer.zero_grad()
+            output = model(input_seq, gender) 
+            loss = criterion(output.transpose(1, 2), target_seq)
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+            batch_count += 1
+
+        average_loss = total_loss / batch_count
+        print(f'Epoch {epoch+1}, Average Loss: {average_loss}')
+
+model = MinimalTransformer(
+    vocab_size=dataset.vocab_size,
+    embed_size=128,
+    num_heads=8,
+    forward_expansion=4,
+    gender_size=2
+)
+
+
+train_model(model, dataloader, epochs=200)
+
+
+def sample(model, dataset, start_str='a', max_length=20, temperature=1.0, gender='male'):
+    assert temperature > 0, "Temperature must be greater than 0"
+    model.eval()  
+    with torch.no_grad():
+
+        chars = [dataset.char_to_int[c] for c in start_str]
+        input_seq = torch.tensor(chars).unsqueeze(0)  # Add batch dimension
+        gender_tensor = torch.tensor([dataset.gender_to_int[gender]])  # Gender encoding
+
+        output_name = start_str
+        for _ in range(max_length - len(start_str)):
+            output = model(input_seq, gender_tensor)
+
+            logits = output[0, -1] / temperature
+            probabilities = torch.softmax(logits, dim=0)
+
+            next_char_idx = torch.multinomial(probabilities, 1).item()
+            next_char = dataset.int_to_char[next_char_idx]
+
+            if next_char == ' ': 
+                break
+
+            output_name += next_char
+            input_seq = torch.cat([input_seq, torch.tensor([[next_char_idx]])], dim=1)
+
+        return output_name
+
+print("Conservative male names:")
+for _ in range(5):
+    print(sample(model, dataset, start_str='R', temperature=0.5, gender='male')) 
+
+print("\nCreative female names:")
+for _ in range(5):
+    print(sample(model, dataset, start_str='S', temperature=1.5, gender='female'))
+
+
+torch.save(model, 'lit_names_model.pt')
+
+
+usr/local/lib/python3.10/dist-packages/torch/nn/modules/transformer.py:379: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.self_attn.batch_first was not True(use batch_first for better inference performance)
+  warnings.warn(
+Epoch 1, Average Loss: 1.4913895290359678
+Epoch 2, Average Loss: 1.3163452709145225
+Epoch 3, Average Loss: 1.3060753943891865
+Epoch 4, Average Loss: 1.282232859860296
+Epoch 5, Average Loss: 1.2746673909571802
+Epoch 6, Average Loss: 1.2707965795701672
+Epoch 7, Average Loss: 1.2676942244819973
+Epoch 8, Average Loss: 1.2624558351727813
+Epoch 9, Average Loss: 1.258063567014551
+Epoch 10, Average Loss: 1.2603081622613748
+Epoch 11, Average Loss: 1.2588362719701685
+Epoch 12, Average Loss: 1.2538299534631812
+Epoch 13, Average Loss: 1.2500682727621477
+Epoch 14, Average Loss: 1.2458997194474866
+Epoch 15, Average Loss: 1.2467083791970264
+Epoch 16, Average Loss: 1.2463165860873437
+Epoch 17, Average Loss: 1.2465151579012512
+Epoch 18, Average Loss: 1.2385763959451155
+Epoch 19, Average Loss: 1.241777034616282
+Epoch 20, Average Loss: 1.2408827663410322
+Epoch 21, Average Loss: 1.242167686520829
+Epoch 22, Average Loss: 1.2427875357183071
+Epoch 23, Average Loss: 1.2327221250345584
+Epoch 24, Average Loss: 1.2382941474556453
+Epoch 25, Average Loss: 1.2380430031670884
+Epoch 26, Average Loss: 1.2359166522271077
+Epoch 27, Average Loss: 1.2346810554798413
+Epoch 28, Average Loss: 1.2357516269910005
+Epoch 29, Average Loss: 1.2328519258103352
+Epoch 30, Average Loss: 1.2312625665438506
+Epoch 31, Average Loss: 1.2278469565357615
+Epoch 32, Average Loss: 1.230197258617567
+Epoch 33, Average Loss: 1.2283847635913743
+Epoch 34, Average Loss: 1.2316853432316082
+Epoch 35, Average Loss: 1.2367076364901697
+Epoch 36, Average Loss: 1.2283990369012705
+Epoch 37, Average Loss: 1.2289907512928657
+Epoch 38, Average Loss: 1.2257068866326404
+Epoch 39, Average Loss: 1.223774556821514
+Epoch 40, Average Loss: 1.2267051843315244
+Epoch 41, Average Loss: 1.2219947618929294
+Epoch 42, Average Loss: 1.2242496715703972
+Epoch 43, Average Loss: 1.2239721509307742
+Epoch 44, Average Loss: 1.2240068926641592
+Epoch 45, Average Loss: 1.2257535024122759
+Epoch 46, Average Loss: 1.227497340662206
+Epoch 47, Average Loss: 1.2217086904604915
+Epoch 48, Average Loss: 1.2232477285645225
+Epoch 49, Average Loss: 1.2219032503870637
+Epoch 50, Average Loss: 1.2215043796380989
+Epoch 51, Average Loss: 1.222937625623032
+Epoch 52, Average Loss: 1.2264582309798289
+Epoch 53, Average Loss: 1.2224010377533352
+Epoch 54, Average Loss: 1.223307350407476
+Epoch 55, Average Loss: 1.2234733875089954
+Epoch 56, Average Loss: 1.2251788870148037
+Epoch 57, Average Loss: 1.2184571788716223
+Epoch 58, Average Loss: 1.224254922433333
+Epoch 59, Average Loss: 1.2196474082385127
+Epoch 60, Average Loss: 1.2228610473188015
+Epoch 61, Average Loss: 1.2213159012700259
+Epoch 62, Average Loss: 1.2239990269713723
+Epoch 63, Average Loss: 1.2178898571508203
+Epoch 64, Average Loss: 1.2169945682932737
+Epoch 65, Average Loss: 1.2182299426421817
+Epoch 66, Average Loss: 1.2162999456579036
+Epoch 67, Average Loss: 1.219367997448435
+Epoch 68, Average Loss: 1.2208290710279592
+Epoch 69, Average Loss: 1.219048911639353
+Epoch 70, Average Loss: 1.2161989961217043
+Epoch 71, Average Loss: 1.2186382144336172
+Epoch 72, Average Loss: 1.217380841023366
+Epoch 73, Average Loss: 1.2159294391809246
+Epoch 74, Average Loss: 1.2165435880069204
+Epoch 75, Average Loss: 1.221105835183336
+Epoch 76, Average Loss: 1.2170190219822608
+Epoch 77, Average Loss: 1.2127377854976729
+Epoch 78, Average Loss: 1.2145438330917961
+Epoch 79, Average Loss: 1.2206408716002
+Epoch 80, Average Loss: 1.2206942260029758
+Epoch 81, Average Loss: 1.220864594689471
+Epoch 82, Average Loss: 1.2114187052598584
+Epoch 83, Average Loss: 1.2139298484730627
+Epoch 84, Average Loss: 1.2154435272744522
+Epoch 85, Average Loss: 1.212420486178794
+Epoch 86, Average Loss: 1.2146178302557573
+Epoch 87, Average Loss: 1.2180208596787434
+Epoch 88, Average Loss: 1.2170307732853494
+Epoch 89, Average Loss: 1.2112828801743127
+Epoch 90, Average Loss: 1.2167833551116611
+Epoch 91, Average Loss: 1.2149662347179158
+Epoch 92, Average Loss: 1.2151903731549683
+Epoch 93, Average Loss: 1.216106930269083
+Epoch 94, Average Loss: 1.2154098482942393
+Epoch 95, Average Loss: 1.2122419568389773
+Epoch 96, Average Loss: 1.2141633441325703
+Epoch 97, Average Loss: 1.2133706515956773
+Epoch 98, Average Loss: 1.2195760989377622
+Epoch 99, Average Loss: 1.2135567066697734
+Epoch 100, Average Loss: 1.2164230714202398
+Epoch 101, Average Loss: 1.2110112222287024
+Epoch 102, Average Loss: 1.2132306994185618
+Epoch 103, Average Loss: 1.2083489802986265
+Epoch 104, Average Loss: 1.2174055689408374
+Epoch 105, Average Loss: 1.21599454347324
+Epoch 106, Average Loss: 1.2104321190491025
+Epoch 107, Average Loss: 1.2126131667921194
+Epoch 108, Average Loss: 1.2093864168103032
+Epoch 109, Average Loss: 1.2122931138800066
+Epoch 110, Average Loss: 1.2120153350321201
+Epoch 111, Average Loss: 1.2183055196826167
+Epoch 112, Average Loss: 1.212502612898001
+Epoch 113, Average Loss: 1.2112757217271526
+Epoch 114, Average Loss: 1.2130949296970142
+Epoch 115, Average Loss: 1.2097926467303701
+Epoch 116, Average Loss: 1.2145450539268523
+Epoch 117, Average Loss: 1.2096315546940437
+Epoch 118, Average Loss: 1.2136920659909607
+Epoch 119, Average Loss: 1.2103715366996795
+Epoch 120, Average Loss: 1.2115779288201465
+Epoch 121, Average Loss: 1.2108171301868123
+Epoch 122, Average Loss: 1.207199027415792
+Epoch 123, Average Loss: 1.2065265642795637
+Epoch 124, Average Loss: 1.2085601510737725
+Epoch 125, Average Loss: 1.2083773443350208
+Epoch 126, Average Loss: 1.2127035436894111
+Epoch 127, Average Loss: 1.209689401119594
+Epoch 128, Average Loss: 1.2076425559435908
+Epoch 129, Average Loss: 1.213151374588842
+Epoch 130, Average Loss: 1.2106547456956191
+Epoch 131, Average Loss: 1.2087576179636326
+Epoch 132, Average Loss: 1.2136235277172134
+Epoch 133, Average Loss: 1.2076055438151
+Epoch 134, Average Loss: 1.2058144942102695
+Epoch 135, Average Loss: 1.2088011830691763
+Epoch 136, Average Loss: 1.2083370662018245
+Epoch 137, Average Loss: 1.2148743849026826
+Epoch 138, Average Loss: 1.211394707675979
+Epoch 139, Average Loss: 1.2064238089346604
+Epoch 140, Average Loss: 1.2120626693657734
+Epoch 141, Average Loss: 1.2130883929757732
+Epoch 142, Average Loss: 1.210873489794524
+Epoch 143, Average Loss: 1.2042078814016501
+Epoch 144, Average Loss: 1.208066090529144
+Epoch 145, Average Loss: 1.207126103135437
+Epoch 146, Average Loss: 1.2083383506465806
+Epoch 147, Average Loss: 1.208574059923647
+Epoch 148, Average Loss: 1.207389861463087
+Epoch 149, Average Loss: 1.2074685532584963
+Epoch 150, Average Loss: 1.2076344829303003
+Epoch 151, Average Loss: 1.2150838073534456
+Epoch 152, Average Loss: 1.210151661997256
+Epoch 153, Average Loss: 1.2110909706519055
+Epoch 154, Average Loss: 1.2066226674634006
+Epoch 155, Average Loss: 1.2059663840433354
+Epoch 156, Average Loss: 1.2084347054421194
+Epoch 157, Average Loss: 1.20894025224942
+Epoch 158, Average Loss: 1.2078114901135562
+Epoch 159, Average Loss: 1.2096179773213835
+Epoch 160, Average Loss: 1.2035770439818914
+Epoch 161, Average Loss: 1.2060349687286045
+Epoch 162, Average Loss: 1.2094619323613616
+Epoch 163, Average Loss: 1.2066294960824868
+Epoch 164, Average Loss: 1.211906210942702
+Epoch 165, Average Loss: 1.207294346551179
+Epoch 166, Average Loss: 1.2058621162011218
+Epoch 167, Average Loss: 1.1997818774856597
+Epoch 168, Average Loss: 1.208786085424687
+Epoch 169, Average Loss: 1.209080513993742
+Epoch 170, Average Loss: 1.210395243563671
+Epoch 171, Average Loss: 1.2104913137647002
+Epoch 172, Average Loss: 1.2062023011120884
+Epoch 173, Average Loss: 1.2090520053041782
+Epoch 174, Average Loss: 1.202798623105754
+Epoch 175, Average Loss: 1.2086933229280554
+Epoch 176, Average Loss: 1.2072867522597783
+Epoch 177, Average Loss: 1.2059142335130293
+Epoch 178, Average Loss: 1.2065264050197224
+Epoch 179, Average Loss: 1.2048668373714795
+Epoch 180, Average Loss: 1.2092498887197773
+Epoch 181, Average Loss: 1.2058287590388723
+Epoch 182, Average Loss: 1.2132191177413398
+Epoch 183, Average Loss: 1.2079692084798699
+Epoch 184, Average Loss: 1.2104635921862756
+Epoch 185, Average Loss: 1.2018264419005322
+Epoch 186, Average Loss: 1.2041153568524146
+Epoch 187, Average Loss: 1.2035458189225479
+Epoch 188, Average Loss: 1.2023347797601118
+Epoch 189, Average Loss: 1.200458805551642
+Epoch 190, Average Loss: 1.205910038806704
+Epoch 191, Average Loss: 1.213511409495659
+Epoch 192, Average Loss: 1.2073757961804688
+Epoch 193, Average Loss: 1.2040225392273762
+Epoch 194, Average Loss: 1.2131137626444397
+Epoch 195, Average Loss: 1.2081873247274768
+Epoch 196, Average Loss: 1.2055888875671055
+Epoch 197, Average Loss: 1.2122704040391643
+Epoch 198, Average Loss: 1.2060462316505522
+Epoch 199, Average Loss: 1.205735560462409
+Epoch 200, Average Loss: 1.2050035916298274
+Conservative male names:
+Ralinijus
+Rengas
+Ralvas
+Rìris
+Raũgijus
+
+Creative female names:
+Salgicira
+Sássė
+Slávkò
+Smėlonia
+Stanensara
