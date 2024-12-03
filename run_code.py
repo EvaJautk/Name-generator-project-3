@@ -27,20 +27,15 @@
 import subprocess
 import sys
 
-# Check if pyngrok is installed, and if not, install it
+# Install any necessary dependencies if they are not already in the environment
+# (NOTE: Do NOT try this in Streamlit Cloud, use requirements.txt instead)
+# subprocess.check_call([sys.executable, "-m", "pip", "install", "pyngrok"])
+
+# You can check if ngrok is installed (optional, if you need ngrok setup)
 try:
-    import pyngrok
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyngrok"])
+    subprocess.check_call([sys.executable, "-m", "pyngrok"])
+except subprocess.CalledProcessError:
+    print("Error with ngrok setup!")
 
-from pyngrok import ngrok
-
-# Now you can safely use pyngrok in your script
-ngrok.set_auth_token("2pRoZs6LBhu0UU89o8ZQsL4vi4y_6TeUEzE6RwPnX2gRWbGTc")
-
-# Open a ngrok tunnel to the Streamlit app
-public_url = ngrok.connect(8501)  # Default Streamlit port
-print(f"Streamlit app is accessible at: {public_url}")
-
-# Start the Streamlit app
-subprocess.run(['streamlit', 'run', 'streamlit_app.py'])
+# Run the Streamlit app
+subprocess.run(["streamlit", "run", "streamlit_app.py"])  # Replace with your actual app filename
