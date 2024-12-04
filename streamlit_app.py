@@ -8,10 +8,10 @@ st.markdown("""
             background-color: #0a6517;
         }
         .css-18e3th9 {
-            color: #e86017;
+            color: #000000;
         }
         .css-1emrehy {
-            background-color: #0a6517;
+            background-color: #000000;
             color: white;
         }
         .css-1emrehy:hover {
