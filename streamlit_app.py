@@ -73,11 +73,9 @@ def sample(model, dataset, start_str='a', max_length=20, temperature=1.0, gender
 # Interface
 st.title("Lithuanian (ish) Name Generator")
 
-# Inputs
 start_str = st.text_input("Enter the starting letters:", "A")
 gender_input = st.selectbox("Gender:", ["Male", "Female"])
 
-# Fixing issues due to localized gender :D
 gender_translation = {
     'Male': 'male',
     'Female': 'female'
