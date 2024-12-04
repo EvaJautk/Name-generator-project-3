@@ -2,6 +2,35 @@ import streamlit as st
 import torch
 import pandas as pd
 
+st.markdown("""
+    <style>
+             .stApp {
+            background-color: #0a6517;
+        }
+        .css-18e3th9 {
+            color: #e86017;
+        }
+        .css-1emrehy {
+            background-color: #0a6517;
+            color: white;
+        }
+        .css-1emrehy:hover {
+            background-color: #e86017;
+        }
+        .stButton>button {
+            background-color: #0a6517;
+            color: white;
+            border-radius: 8px;
+            font-family: 'Luminari', fantasy;
+            padding: 10px 20px;
+            border: none;
+            cursor: pointer;
+        }
+        .stButton>button:hover {
+            background-color: #e86017;
+    </style>
+""", unsafe_allow_html=True)
+
 
 class MinimalTransformer(torch.nn.Module):
     def __init__(self, vocab_size, embed_size, num_heads, forward_expansion, gender_size):
