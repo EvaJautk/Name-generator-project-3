@@ -12,16 +12,16 @@ st.markdown("""
         }
         .css-1emrehy {
             background-color: #000000;
-            color: white;
+            color: black;
         }
         .css-1emrehy:hover {
             background-color: #e86017;
         }
         .stButton>button {
             background-color: #0a6517;
-            color: white;
+            color: black;
             border-radius: 8px;
-            font-family: 'Luminari', fantasy;
+            font-family: Avantgarde, TeX Gyre Adventor, URW Gothic L, sans-serif;
             padding: 10px 20px;
             border: none;
             cursor: pointer;
